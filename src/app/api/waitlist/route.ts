@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { waitlistSchema } from '@/lib/validation';
+import { sendWaitlistConfirmation } from '@/lib/email';
 
 export const runtime = 'nodejs';
 
@@ -42,13 +43,12 @@ export async function POST(req: NextRequest) {
       ip,
     );
 
-    // Optional: Resend confirmation email (skip gracefully if not configured)
-    if (process.env.RESEND_API_KEY) {
-      // Placeholder: wired in a later card when key is available.
-      console.log(`[waitlist] would send confirmation to ${email}`);
-    } else {
-      console.log(`[waitlist] signup id=${result.lastInsertRowid} email=${email}`);
-    }
+    console.log(`[waitlist] signup id=${result.lastInsertRowid} email=${email}`);
+
+    // Fire-and-log confirmation email (failure is non-fatal for signup)
+    sendWaitlistConfirmation(email, domain || null).catch((e) =>
+      console.error('[waitlist] email send failed (non-fatal):', e),
+    );
 
     return NextResponse.json({ ok: true, id: Number(result.lastInsertRowid) });
   } catch (e) {
