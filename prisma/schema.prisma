@@ -1,0 +1,94 @@
+// AEO Tool — Prisma schema
+// Full MVP schema ready for Neon Postgres.
+// Cards #1–#8 fields included so later work is just migrations, not schema re-writes.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// Users are synced from Clerk via webhook (or JIT on first request).
+model User {
+  id        String   @id // Clerk user id
+  email     String   @unique
+  plan      Plan     @default(FREE)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  projects Project[]
+}
+
+enum Plan {
+  FREE
+  PAID_PER_REPORT
+}
+
+model Project {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name        String
+  domain      String
+  paid        Boolean  @default(false) // flipped by Stripe webhook
+  stripeCheckoutId String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  keywords    Keyword[]
+  competitors Competitor[]
+  audits      Audit[]
+
+  @@index([userId])
+}
+
+model Keyword {
+  id        String  @id @default(cuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  term      String
+  intent    String? // "informational" | "navigational" | "transactional" (free-form for MVP)
+  lang      String  @default("en")
+  createdAt DateTime @default(now())
+
+  @@index([projectId])
+}
+
+model Competitor {
+  id        String  @id @default(cuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  domain    String
+  createdAt DateTime @default(now())
+
+  @@index([projectId])
+}
+
+// Audit + related tables — full MVP shape (populated by cards #3–#8)
+model Audit {
+  id          String      @id @default(cuid())
+  projectId   String
+  project     Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  status      AuditStatus @default(QUEUED)
+  startedAt   DateTime?
+  finishedAt  DateTime?
+  scoreTotal  Int?
+  scoreSchema Int?
+  scoreStructure Int?
+  scoreEeat   Int?
+  scoreCitation Int?
+  scoreAuthority Int?
+  errorMessage String?
+  createdAt   DateTime    @default(now())
+
+  @@index([projectId, status])
+}
+
+enum AuditStatus {
+  QUEUED
+  RUNNING
+  DONE
+  FAILED
+}

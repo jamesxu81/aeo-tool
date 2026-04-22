@@ -16,6 +16,7 @@ export default function Home() {
           <a href="#how" className="hover:text-white">How it works</a>
           <a href="#pricing" className="hover:text-white">Pricing</a>
           <a href="#faq" className="hover:text-white">FAQ</a>
+          <a href="/sign-in" className="hover:text-white">Sign in</a>
         </nav>
       </header>
 
