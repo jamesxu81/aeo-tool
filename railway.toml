@@ -1,0 +1,17 @@
+# Railway configuration for the AEO worker service
+# Docs: https://docs.railway.com/reference/config-as-code
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "worker/Dockerfile"
+
+[deploy]
+startCommand = "node_modules/.bin/tsx worker/index.ts"
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 5
+
+# Health check — Railway pings this; worker doesn't expose HTTP so we
+# rely on process-alive check (Railway default when no healthcheckPath set)
+
+[[services]]
+name = "aeo-worker"

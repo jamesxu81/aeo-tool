@@ -40,6 +40,7 @@ model Project {
   keywords    Keyword[]
   competitors Competitor[]
   audits      Audit[]
+  pages       Page[]
 
   @@index([userId])
 }
@@ -63,6 +64,8 @@ model Competitor {
   domain    String
   createdAt DateTime @default(now())
 
+  competitorAudits CompetitorAudit[]
+
   @@index([projectId])
 }
 
@@ -83,6 +86,16 @@ model Audit {
   errorMessage String?
   createdAt   DateTime    @default(now())
 
+  jobLogs     JobLog[]
+  aiChecks    AiCheck[]
+  pages       Page[]
+  schemaFindings   SchemaFinding[]
+  contentFindings  ContentFinding[]
+  eeatSignals      EeatSignal[]
+  competitorAudits CompetitorAudit[]
+  recommendations  Recommendation[]
+  report           Report?
+
   @@index([projectId, status])
 }
 
@@ -91,4 +104,169 @@ enum AuditStatus {
   RUNNING
   DONE
   FAILED
+}
+
+model JobLog {
+  id        String   @id @default(cuid())
+  auditId   String
+  audit     Audit    @relation(fields: [auditId], references: [id], onDelete: Cascade)
+  message   String
+  createdAt DateTime @default(now())
+
+  @@index([auditId])
+}
+
+// AI citation check results — one row per keyword × provider
+model AiCheck {
+  id               String   @id @default(cuid())
+  auditId          String
+  audit            Audit    @relation(fields: [auditId], references: [id], onDelete: Cascade)
+  keyword          String
+  provider         String   // 'serpapi' | 'openai' | 'perplexity'
+  ourDomainCited   Boolean  @default(false)
+  ourPosition      Int?     // 1-based position in citations, null if not cited
+  allCitedDomains  String[] // all domains cited in the AI answer
+  rawResponse      Json?    // raw API response for debugging
+  cachedAt         DateTime @default(now())
+  createdAt        DateTime @default(now())
+
+  @@index([auditId])
+  @@index([keyword, provider, cachedAt]) // for 24h cache lookup
+}
+
+// Crawled pages — one row per URL fetched during crawl.domain job
+model Page {
+  id               String   @id @default(cuid())
+  projectId        String
+  project          Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  auditId          String
+  audit            Audit    @relation(fields: [auditId], references: [id], onDelete: Cascade)
+  url              String
+  statusCode       Int
+  title            String?
+  h1               String?
+  metaDescription  String?
+  ogTitle          String?
+  canonicalUrl     String?
+  lang             String?
+  wordCount        Int      @default(0)
+  hasSchemaJsonLd  Boolean  @default(false)
+  schemaTypes      String[]
+  rawStorageKey    String?  // S3/R2 key for raw HTML (future)
+  crawledAt        DateTime @default(now())
+  createdAt        DateTime @default(now())
+
+  schemaFindings   SchemaFinding[]
+  contentFindings  ContentFinding[]
+
+  @@index([projectId])
+  @@index([auditId])
+}
+
+// Schema audit findings — one row per JSON-LD block found (or expected) on a page
+model SchemaFinding {
+  id            String   @id @default(cuid())
+  auditId       String
+  audit         Audit    @relation(fields: [auditId], references: [id], onDelete: Cascade)
+  pageId        String
+  page          Page     @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  schemaType    String   // 'Article' | 'FAQPage' | 'Product' | 'Organization' | 'BreadcrumbList' | 'Person'
+  valid         Boolean  @default(false)
+  missingFields String[]
+  issues        String[]
+  fixSuggestion String?
+  rawJson       Json?
+  createdAt     DateTime @default(now())
+
+  @@index([auditId])
+  @@index([pageId])
+}
+
+// Content quality audit findings — one row per rule per page
+model ContentFinding {
+  id            String   @id @default(cuid())
+  auditId       String
+  audit         Audit    @relation(fields: [auditId], references: [id], onDelete: Cascade)
+  pageId        String
+  page          Page     @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  rule          String   // 'single_h1' | 'heading_hierarchy' | 'faq_block' | 'tldr_summary' | 'paragraph_length' | 'list_present' | 'question_headings' | 'comparison_table' | 'answer_first' | 'font_size'
+  passed        Boolean  @default(false)
+  severity      String   @default("warning") // 'critical' | 'warning' | 'info'
+  evidence      String?
+  fixSuggestion String?
+  createdAt     DateTime @default(now())
+
+  @@index([auditId])
+  @@index([pageId])
+  @@unique([auditId, pageId, rule])
+}
+
+// E-E-A-T signals — one row per signal per audit
+model EeatSignal {
+  id            String   @id @default(cuid())
+  auditId       String
+  audit         Audit    @relation(fields: [auditId], references: [id], onDelete: Cascade)
+  signal        String   // 'author_page' | 'author_schema' | 'about_page' | 'contact_info' | 'last_updated' | 'https' | 'privacy_policy' | 'terms_of_service' | 'outbound_authority_links'
+  passed        Boolean  @default(false)
+  severity      String   @default("warning") // 'critical' | 'warning' | 'info'
+  label         String   // human-readable signal name
+  evidence      String?  // URL or excerpt that triggered the finding
+  value         String?  // quantitative value e.g. "12 outbound authority links"
+  fixSuggestion String?
+  createdAt     DateTime @default(now())
+
+  @@index([auditId])
+  @@unique([auditId, signal])
+}
+
+// Competitor audit — aggregate scores from crawling a competitor domain
+model CompetitorAudit {
+  id              String   @id @default(cuid())
+  auditId         String
+  audit           Audit    @relation(fields: [auditId], references: [id], onDelete: Cascade)
+  competitorId    String
+  competitor      Competitor @relation(fields: [competitorId], references: [id], onDelete: Cascade)
+  domain          String
+  pagesCrawled    Int      @default(0)
+  scoreSchema     Int?
+  scoreContent    Int?
+  scoreEeat       Int?
+  citationCount   Int      @default(0)
+  topCitedKeywords String[]
+  status          String   @default("pending")
+  errorMessage    String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([auditId])
+  @@unique([auditId, competitorId])
+}
+
+// Report — generated report metadata + shareable token
+model Report {
+  id              String   @id @default(cuid())
+  auditId         String   @unique
+  audit           Audit    @relation(fields: [auditId], references: [id], onDelete: Cascade)
+  shareToken      String   @unique @default(cuid())
+  scoreTotal      Int?
+  recommendations Json?
+  emailSentAt     DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+// Recommendation — per-finding actionable fix with impact × effort
+model Recommendation {
+  id            String   @id @default(cuid())
+  auditId       String
+  audit         Audit    @relation(fields: [auditId], references: [id], onDelete: Cascade)
+  category      String
+  title         String
+  description   String
+  impact        Int
+  effort        Int
+  priority      Int
+  createdAt     DateTime @default(now())
+
+  @@index([auditId])
 }

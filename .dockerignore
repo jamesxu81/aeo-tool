@@ -1,0 +1,10 @@
+.git
+.next
+node_modules
+*.log
+*.md
+.env*
+.DS_Store
+__tests__
+*.test.ts
+*.spec.ts

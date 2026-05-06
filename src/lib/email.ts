@@ -50,3 +50,73 @@ export async function sendWaitlistConfirmation(email: string, domain?: string | 
     return { sent: false as const, error: msg };
   }
 }
+
+export async function sendReportReady({
+  to,
+  domain,
+  scoreTotal,
+  auditId,
+  shareToken,
+}: {
+  to: string;
+  domain: string;
+  scoreTotal: number;
+  auditId: string;
+  shareToken: string;
+}) {
+  const r = client();
+  if (!r) {
+    console.log(`[email] RESEND_API_KEY not set — skipping report-ready for ${to}`);
+    return { skipped: true as const };
+  }
+
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3003';
+  const reportUrl = `${appUrl}/app/audits/${auditId}/report?token=${shareToken}`;
+
+  const scoreColor = scoreTotal >= 70 ? '#16a34a' : scoreTotal >= 40 ? '#d97706' : '#dc2626';
+  const grade = scoreTotal >= 80 ? 'A' : scoreTotal >= 60 ? 'B' : scoreTotal >= 40 ? 'C' : 'D';
+
+  const html = `<!doctype html>
+<html><body style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;color:#0f172a;max-width:520px;margin:auto;padding:24px">
+  <h2 style="margin:0 0 12px">Your AEO Report is Ready 📊</h2>
+  <p>The audit for <b>${domain}</b> has completed.</p>
+  <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:20px;margin:20px 0;text-align:center">
+    <div style="font-size:48px;font-weight:800;color:${scoreColor}">${scoreTotal}</div>
+    <div style="font-size:14px;color:#64748b;margin-top:4px">AEO Score / 100 — Grade ${grade}</div>
+  </div>
+  <p>Your report includes:</p>
+  <ul style="color:#475569">
+    <li>AI citation check results (Google AI Overview)</li>
+    <li>Schema markup audit</li>
+    <li>Content quality analysis</li>
+    <li>E-E-A-T signal evaluation</li>
+    <li>Competitor comparison</li>
+    <li>Top 10 prioritised recommendations</li>
+  </ul>
+  <a href="${reportUrl}" style="display:inline-block;background:#6366f1;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;margin:12px 0">
+    View Full Report →
+  </a>
+  <p style="color:#94a3b8;font-size:12px;margin-top:40px">
+    AEO Tool — Answer Engine Optimisation
+  </p>
+</body></html>`;
+
+  try {
+    const res = await r.emails.send({
+      from: FROM,
+      to,
+      subject: `AEO Report Ready: ${domain} scored ${scoreTotal}/100`,
+      html,
+    });
+    if (res.error) {
+      console.error('[email] resend error:', res.error);
+      return { sent: false as const, error: res.error.message };
+    }
+    console.log(`[email] report-ready sent to ${to} (id=${res.data?.id})`);
+    return { sent: true as const, id: res.data?.id };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'unknown';
+    console.error('[email] send exception:', msg);
+    return { sent: false as const, error: msg };
+  }
+}
